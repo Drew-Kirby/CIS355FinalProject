@@ -4,8 +4,6 @@ require 'database/database.php'; // Include centralized database connection ($pd
 
 // Redirect to login if user is not logged in at all
 if (!isset($_SESSION['user_id'])) {
-    // Determine if it should be admin or user login based on where they might have come from,
-    // but defaulting to user login is safest if unsure.
     header('Location: login.php');
     exit();
 }
@@ -42,7 +40,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['error_message'] = "Invalid data submitted for new issue.";
             }
         } else {
-            // Non-admin tried to add issue
             $_SESSION['error_message'] = "Access Denied: Only administrators can add issues.";
         }
         header('Location: index.php');
@@ -71,7 +68,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['error_message'] = "Invalid ID for closing issue.";
             }
         } else {
-            // Non-admin tried to close issue
             $_SESSION['error_message'] = "Access Denied: Only administrators can close issues.";
         }
         header('Location: index.php');
@@ -85,8 +81,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($id) {
                 try {
                     $pdo->beginTransaction();
+                    // Delete comments first due to potential foreign key constraints
                     $stmtComments = $pdo->prepare('DELETE FROM comments WHERE issue_id = :id');
                     $stmtComments->execute(['id' => $id]);
+                    // Then delete the issue
                     $stmt = $pdo->prepare('DELETE FROM issues WHERE id = :id');
                     $stmt->execute(['id' => $id]);
                     $pdo->commit();
@@ -100,7 +98,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['error_message'] = "Invalid ID for deleting issue.";
             }
         } else {
-             // Non-admin tried to delete issue
              $_SESSION['error_message'] = "Access Denied: Only administrators can delete issues.";
         }
         header('Location: index.php');
@@ -137,12 +134,23 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
     <style>
         .table td .btn {
             margin-right: 5px;
-            margin-bottom: 5px;
+            margin-bottom: 5px; /* Add bottom margin for wrapped buttons */
         }
          tr.issue-closed td {
              background-color: #f8f9fa !important;
              color: #6c757d;
              text-decoration: line-through;
+         }
+         .table th, .table td { /* Ensure consistent vertical alignment */
+             vertical-align: middle;
+         }
+         .action-cell { /* Set a min-width for the admin actions cell if needed */
+             min-width: 210px; /* Adjust as needed */
+             text-align: left; /* Align buttons left */
+         }
+         .view-cell {
+             min-width: 120px; /* Ensure view button has space */
+             text-align: center; /* Center the view button */
          }
     </style>
 </head>
@@ -151,10 +159,8 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
 
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <!-- Display Admin badge in heading -->
         <h1>Issue Tracker <?php if ($isAdmin) echo '<span class="badge badge-primary align-middle">Admin</span>'; ?></h1>
         <div>
-            <!-- Show Manage Users link only to Admins -->
             <?php if ($isAdmin): ?>
                 <a href="personlist.php" class="btn btn-info mr-2">Manage Users</a>
             <?php endif; ?>
@@ -227,15 +233,16 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                     <th scope="col">Priority</th>
                     <th scope="col">Opened</th>
                     <th scope="col">Closed</th>
-                    <!-- Show Actions column header ONLY for Admins -->
+                    <th scope="col" class="view-cell">View</th> <!-- View column for ALL users -->
                     <?php if ($isAdmin): ?>
-                        <th scope="col">Actions</th>
+                        <th scope="col" class="action-cell">Admin Actions</th> <!-- Actions column header ONLY for Admins -->
                     <?php endif; ?>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($issues) && !isset($fetchError)): ?>
-                     <tr><td colspan="<?php echo $isAdmin ? '7' : '6'; // Adjust colspan based on role ?>" class="text-center text-muted">No issues found.<?php echo $isAdmin ? ' Add one above!' : ''; ?></td></tr>
+                     <!-- Adjust colspan based on whether admin actions column is shown -->
+                     <tr><td colspan="<?php echo $isAdmin ? '8' : '7'; ?>" class="text-center text-muted">No issues found.<?php echo $isAdmin ? ' Add one above!' : ''; ?></td></tr>
                 <?php endif; ?>
                 <?php foreach ($issues as $issue):
                     $isClosed = !empty($issue['date_closed']);
@@ -249,9 +256,21 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                         <td><?php echo htmlspecialchars(date('Y-m-d', strtotime($issue['date_opened']))); ?></td>
                         <td class="issue-closed-date"><?php echo $isClosed ? htmlspecialchars(date('Y-m-d', strtotime($issue['date_closed']))) : '<span class="badge badge-success">Open</span>'; ?></td>
 
-                        <!-- Show Actions column data ONLY for Admins -->
+                        <!-- View Details Button - Visible to ALL logged-in users -->
+                        <td class="view-cell">
+                             <a href="view_issue.php?id=<?php echo $issue['id']; ?>"
+                                class="btn btn-info btn-sm"
+                                title="View Issue Details and Comments">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-eye-fill" viewBox="0 0 16 16">
+                                    <path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
+                                    <path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>
+                                </svg> View
+                             </a>
+                        </td>
+
+                        <!-- Admin Actions Column Data - Show ONLY to Admins -->
                         <?php if ($isAdmin): ?>
-                        <td>
+                        <td class="action-cell">
                             <!-- Close Button Form -->
                             <form action="" method="POST" style="display:inline-block;">
                                 <input type="hidden" name="id" value="<?php echo $issue['id']; ?>">
@@ -260,12 +279,7 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                                 </button>
                             </form>
 
-                            <!-- View/Edit Link (Goes to view_issue.php for details/comments/editing) -->
-                            <a href="view_issue.php?id=<?php echo $issue['id']; ?>"
-                               class="btn btn-warning btn-sm"
-                               title="View Issue Details and Comments">
-                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-square" viewBox="0 0 16 16"><path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/><path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5v11z"/></svg> View/Edit
-                            </a>
+                            <!-- Note: Edit is now handled within view_issue.php. You could keep a direct edit link here for admins if desired, but linking to view/edit is common -->
 
                             <!-- Delete Button Form -->
                             <form action="" method="POST" style="display:inline-block;" onsubmit="return confirm('Are you sure you want to permanently delete this issue and ALL its comments? This cannot be undone.');">
@@ -275,15 +289,12 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                                 </button>
                             </form>
                         </td>
-                        <?php endif; // End $isAdmin check for actions column ?>
+                        <?php endif; // End $isAdmin check for actions column data ?>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
-         <!-- Add message for non-admins if there are issues -->
-         <?php if (!$isAdmin && !empty($issues)): ?>
-             <p class="text-center text-muted mt-3"><i>Viewing issues only. Contact an administrator for modifications.</i></p>
-         <?php endif;?>
+         <!-- Remove the message for non-admins, as they can now view details -->
     </div>
 </div> <!-- /container -->
 

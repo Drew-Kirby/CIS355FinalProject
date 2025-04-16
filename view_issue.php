@@ -8,6 +8,10 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+// --- Determine User Role ---
+$isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'admin');
+$userId = $_SESSION['user_id']; // Get current user's ID
+
 // --- Get and validate the Issue ID from the URL ---
 if (!isset($_GET['id']) || !filter_var($_GET['id'], FILTER_VALIDATE_INT)) {
     $_SESSION['error_message'] = 'Invalid Issue ID specified.';
@@ -15,19 +19,20 @@ if (!isset($_GET['id']) || !filter_var($_GET['id'], FILTER_VALIDATE_INT)) {
     exit();
 }
 $issueId = (int)$_GET['id'];
-$userId = $_SESSION['user_id'];
+
 
 // --- Initialize message variables ---
-$comment_error = null;
-$comment_success = null;
-$update_error = null;
-$update_success = null;
+// Note: Using session flash messages is generally better after redirects
+// $comment_error = null; // Local variables might not persist across redirect
+// $comment_success = null;
+// $update_error = null;
+// $update_success = null;
 
 // --- Handle POST Requests (Update Issue OR Add Comment) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    // --- Handle Issue Update ---
-    if (isset($_POST['update_issue'])) {
+    // --- Handle Issue Update - ONLY ADMINS ---
+    if (isset($_POST['update_issue']) && $isAdmin) { // <-- Added $isAdmin check here
         $submittedId = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
         $issueTitle = trim($_POST['issue_title'] ?? '');
         $description = trim($_POST['description'] ?? '');
@@ -60,8 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($current_issue_status && $current_issue_status['date_closed']) {
                          $_SESSION['error_message'] = "Cannot update a closed issue.";
                     } else {
-                         // No rows affected, likely means data was identical or issue not found (though fetched earlier)
-                         $_SESSION['info_message'] = "No changes were detected or needed for the update."; // Use info for no change
+                         $_SESSION['info_message'] = "No changes were detected or needed for the update.";
                     }
                 }
             } catch (PDOException $e) {
@@ -78,34 +82,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: view_issue.php?id=" . $issueId);
         exit();
 
-    // --- Handle Comment Submission ---
+    // --- Handle Comment Submission - ALL Logged-in Users ---
     } elseif (isset($_POST['add_comment'])) {
-        $commentText = trim($_POST['comment_text']);
+        // Non-admin tried to update? Add an error message.
+        if (isset($_POST['update_issue']) && !$isAdmin) {
+             $_SESSION['error_message'] = "Access Denied: Only administrators can update issues.";
+        } else {
+            // Proceed with adding comment
+            $commentText = trim($_POST['comment_text']);
 
-        // Fetch current issue status *again* right before insert, in case it was closed between page load and POST
-        $stmt_check_closed_comment = $pdo->prepare("SELECT date_closed FROM issues WHERE id = :id");
-        $stmt_check_closed_comment->execute(['id' => $issueId]);
-        $issue_status_for_comment = $stmt_check_closed_comment->fetch();
+            // Fetch current issue status *again* right before insert
+            $stmt_check_closed_comment = $pdo->prepare("SELECT date_closed FROM issues WHERE id = :id");
+            $stmt_check_closed_comment->execute(['id' => $issueId]);
+            $issue_status_for_comment = $stmt_check_closed_comment->fetch();
 
-        if ($issue_status_for_comment && $issue_status_for_comment['date_closed'] === null) { // Check if open
-            if (!empty($commentText)) {
-                try {
-                    $stmt_add = $pdo->prepare("INSERT INTO comments (issue_id, user_id, comment, date_posted) VALUES (:issue_id, :user_id, :comment, NOW())");
-                    $stmt_add->execute([
-                        'issue_id' => $issueId,
-                        'user_id' => $userId,
-                        'comment' => $commentText
-                    ]);
-                    $_SESSION['success_message'] = "Comment added successfully!";
-                } catch (PDOException $e) {
-                     error_log("Error adding comment via view_issue.php (Issue ID: $issueId): " . $e->getMessage());
-                     $_SESSION['error_message'] = "Failed to add comment due to a database error.";
+            if ($issue_status_for_comment && $issue_status_for_comment['date_closed'] === null) { // Check if open
+                if (!empty($commentText)) {
+                    try {
+                        $stmt_add = $pdo->prepare("INSERT INTO comments (issue_id, user_id, comment, date_posted) VALUES (:issue_id, :user_id, :comment, NOW())");
+                        $stmt_add->execute([
+                            'issue_id' => $issueId,
+                            'user_id' => $userId, // Use the logged-in user's ID
+                            'comment' => $commentText
+                        ]);
+                        $_SESSION['success_message'] = "Comment added successfully!";
+                    } catch (PDOException $e) {
+                         error_log("Error adding comment via view_issue.php (Issue ID: $issueId): " . $e->getMessage());
+                         $_SESSION['error_message'] = "Failed to add comment due to a database error.";
+                    }
+                } else {
+                     $_SESSION['error_message'] = "Comment cannot be empty.";
                 }
             } else {
-                 $_SESSION['error_message'] = "Comment cannot be empty.";
+                $_SESSION['error_message'] = "Cannot comment on a closed or non-existent issue.";
             }
-        } else {
-            $_SESSION['error_message'] = "Cannot comment on a closed or non-existent issue.";
         }
         // Redirect back to the same page
         header("Location: view_issue.php?id=" . $issueId);
@@ -121,7 +131,6 @@ try {
     $issue = $stmt_issue->fetch();
 
     if (!$issue) {
-        // Issue might have been deleted between initial link click and now
         $_SESSION['error_message'] = 'Issue not found.';
         header('Location: index.php');
         exit();
@@ -141,9 +150,7 @@ try {
 
 } catch (PDOException $e) {
     error_log("Error fetching issue/comments for view_issue.php (ID: $issueId): " . $e->getMessage());
-    // Display error on this page instead of dying
     $fetchError = 'Error retrieving issue data. Please try again later.';
-    // Set $issue to null or an empty array to prevent errors in the HTML below
     $issue = null;
     $comments = [];
 }
@@ -177,13 +184,13 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
     <?php if (isset($fetchError)): ?>
         <div class="alert alert-danger"><?php echo htmlspecialchars($fetchError); ?></div>
     <?php // Stop rendering the rest if fetch failed and $issue is not set
-          else:
+          elseif ($issue): // Make sure $issue is available
     ?>
 
     <!-- Display Flash Messages -->
-    <?php if ($errorMessage): ?> <div class="alert alert-danger"><?php echo htmlspecialchars($errorMessage); ?></div> <?php endif; ?>
-    <?php if ($successMessage): ?> <div class="alert alert-success"><?php echo htmlspecialchars($successMessage); ?></div> <?php endif; ?>
-    <?php if ($infoMessage): ?> <div class="alert alert-info"><?php echo htmlspecialchars($infoMessage); ?></div> <?php endif; ?>
+    <?php if ($errorMessage): ?> <div class="alert alert-danger alert-dismissible fade show" role="alert"><?php echo htmlspecialchars($errorMessage); ?><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">×</span></button></div> <?php endif; ?>
+    <?php if ($successMessage): ?> <div class="alert alert-success alert-dismissible fade show" role="alert"><?php echo htmlspecialchars($successMessage); ?><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">×</span></button></div> <?php endif; ?>
+    <?php if ($infoMessage): ?> <div class="alert alert-info alert-dismissible fade show" role="alert"><?php echo htmlspecialchars($infoMessage); ?><button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">×</span></button></div> <?php endif; ?>
 
 
     <h1>Issue #<?php echo htmlspecialchars($issue['id']); ?></h1>
@@ -194,7 +201,8 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                 <li class="nav-item">
                     <a class="nav-link active" id="details-tab" data-toggle="tab" href="#details" role="tab" aria-controls="details" aria-selected="true">Details</a>
                 </li>
-                <?php if (!$isClosed): // Only show Edit tab if issue is open ?>
+                <!-- Only show Edit tab link to Admins if the issue is open -->
+                <?php if ($isAdmin && !$isClosed): ?>
                 <li class="nav-item">
                     <a class="nav-link" id="edit-tab" data-toggle="tab" href="#edit" role="tab" aria-controls="edit" aria-selected="false">Edit Issue</a>
                 </li>
@@ -207,13 +215,20 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                  <h5 class="card-title"><?php echo htmlspecialchars($issue['issue']); ?></h5>
                  <p><strong>Description:</strong> <?php echo nl2br(htmlspecialchars($issue['description'] ?: 'N/A')); ?></p>
                  <hr>
-                 <p><strong>Priority:</strong> <span class="badge badge-info"><?php echo htmlspecialchars($issue['priority']); ?></span></p>
+                 <p><strong>Priority:</strong> <span class="badge <?php
+                    switch ($issue['priority']) {
+                        case 'High': echo 'badge-danger'; break;
+                        case 'Medium': echo 'badge-warning'; break;
+                        case 'Low': echo 'badge-info'; break;
+                        default: echo 'badge-secondary';
+                    }
+                 ?>"><?php echo htmlspecialchars($issue['priority']); ?></span></p>
                  <p><strong>Opened:</strong> <?php echo htmlspecialchars(date('Y-m-d H:i', strtotime($issue['date_opened']))); ?></p>
-                 <p><strong>Status:</strong> <?php echo $isClosed ? 'Closed on ' . htmlspecialchars(date('Y-m-d H:i', strtotime($issue['date_closed']))) : '<span class="badge badge-success">Open</span>'; ?></p>
+                 <p><strong>Status:</strong> <?php echo $isClosed ? '<span class="badge badge-secondary">Closed</span> on ' . htmlspecialchars(date('Y-m-d H:i', strtotime($issue['date_closed']))) : '<span class="badge badge-success">Open</span>'; ?></p>
              </div>
 
-             <!-- Edit Tab (only rendered if issue is open) -->
-             <?php if (!$isClosed): ?>
+             <!-- Edit Tab Content - Only render for Admins if the issue is open -->
+             <?php if ($isAdmin && !$isClosed): ?>
              <div class="tab-pane fade" id="edit" role="tabpanel" aria-labelledby="edit-tab">
                  <h5 class="card-title">Edit Issue Details</h5>
                  <form action="view_issue.php?id=<?php echo $issueId; ?>" method="POST">
@@ -266,13 +281,11 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                 <?php endif; ?>
             </div>
 
-            <!-- Add Comment Form (only show if issue is open) -->
+            <!-- Add Comment Form (show to ALL logged-in users if issue is open) -->
             <?php if (!$isClosed): ?>
             <hr>
             <h6>Add a New Comment</h6>
-             <!-- Comment status messages moved here -->
-             <?php if ($comment_error): ?><div class="alert alert-danger mt-2"><?php echo htmlspecialchars($comment_error); ?></div><?php endif; ?>
-             <?php if ($comment_success): ?><div class="alert alert-success mt-2"><?php echo htmlspecialchars($comment_success); ?></div><?php endif; ?>
+             <!-- Removed local comment status variables - rely on session flash messages shown at top -->
 
              <form action="view_issue.php?id=<?php echo $issueId; ?>" method="POST" class="mt-2">
                  <div class="form-group">
@@ -281,13 +294,13 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                  <button type="submit" name="add_comment" class="btn btn-success">Post Comment</button>
              </form>
             <?php else: ?>
-                 <p class="text-muted font-italic">Commenting is disabled because this issue is closed.</p>
+                 <p class="text-muted font-italic mt-3">Commenting is disabled because this issue is closed.</p>
             <?php endif; ?>
 
          </div>
     </div>
 
-    <?php endif; // End the else for if($fetchError) ?>
+    <?php endif; // End the else for if($fetchError)/if($issue) ?>
 
 </div><!-- /.container -->
 
@@ -301,6 +314,13 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
             e.preventDefault()
             $(this).tab('show')
         })
+
+        // Dismiss alerts automatically after a few seconds (optional)
+        window.setTimeout(function() {
+            $(".alert").fadeTo(500, 0).slideUp(500, function(){
+                $(this).remove();
+            });
+        }, 5000); // 5 seconds
     })
 </script>
 </body>

@@ -131,6 +131,28 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
     <title>Issue Tracker <?php echo $isAdmin ? '- Admin' : ''; ?></title>
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .table td .btn {
+            margin-right: 5px;
+            margin-bottom: 5px; /* Add bottom margin for wrapped buttons */
+        }
+         tr.issue-closed td {
+             background-color: #f8f9fa !important;
+             color: #6c757d;
+             text-decoration: line-through;
+         }
+         .table th, .table td { /* Ensure consistent vertical alignment */
+             vertical-align: middle;
+         }
+         .action-cell { /* Set a min-width for the admin actions cell if needed */
+             min-width: 210px; /* Adjust as needed */
+             text-align: left; /* Align buttons left */
+         }
+         .view-cell {
+             min-width: 120px; /* Ensure view button has space */
+             text-align: center; /* Center the view button */
+         }
+    </style>
 </head>
 <body>
 <div class="container mt-4">
@@ -138,12 +160,11 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>Issue Tracker <?php if ($isAdmin) echo '<span class="badge badge-primary align-middle">Admin</span>'; ?></h1>
-        <!-- Added a wrapper div for better control if needed -->
-        <div class="header-actions d-flex align-items-center">
+        <div>
             <?php if ($isAdmin): ?>
                 <a href="personlist.php" class="btn btn-info mr-2">Manage Users</a>
             <?php endif; ?>
-            <form action="logout.php" method="POST" style="display:inline; margin:0;"> <!-- Remove default form margins -->
+            <form action="logout.php" method="POST" style="display:inline;">
                 <button type="submit" class="btn btn-danger">Logout</button>
             </form>
         </div>
@@ -235,8 +256,8 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                         <td><?php echo htmlspecialchars(date('Y-m-d', strtotime($issue['date_opened']))); ?></td>
                         <td class="issue-closed-date"><?php echo $isClosed ? htmlspecialchars(date('Y-m-d', strtotime($issue['date_closed']))) : '<span class="badge badge-success">Open</span>'; ?></td>
 
-                        <!-- View Details Button - Added flex classes to TD -->
-                        <td class="view-cell d-flex justify-content-center align-items-center">
+                        <!-- View Details Button - Visible to ALL logged-in users -->
+                        <td class="view-cell">
                              <a href="view_issue.php?id=<?php echo $issue['id']; ?>"
                                 class="btn btn-info btn-sm"
                                 title="View Issue Details and Comments">
@@ -247,19 +268,21 @@ unset($_SESSION['error_message'], $_SESSION['success_message'], $_SESSION['info_
                              </a>
                         </td>
 
-                        <!-- Admin Actions Column Data - Added flex classes to TD -->
+                        <!-- Admin Actions Column Data - Show ONLY to Admins -->
                         <?php if ($isAdmin): ?>
-                        <td class="action-cell d-flex align-items-center">
+                        <td class="action-cell">
                             <!-- Close Button Form -->
-                            <form action="" method="POST" style="display:inline-block; margin: 0;" class="mr-1"> <!-- Added small margin right -->
+                            <form action="" method="POST" style="display:inline-block;">
                                 <input type="hidden" name="id" value="<?php echo $issue['id']; ?>">
                                 <button type="submit" name="closeIssue" class="btn btn-secondary btn-sm issue-close-btn" title="Close Issue" <?php echo $isClosed ? 'disabled' : ''; ?>>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-check-circle" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/></svg> Close
                                 </button>
                             </form>
 
+                            <!-- Note: Edit is now handled within view_issue.php. You could keep a direct edit link here for admins if desired, but linking to view/edit is common -->
+
                             <!-- Delete Button Form -->
-                            <form action="" method="POST" style="display:inline-block; margin: 0;" onsubmit="return confirm('Are you sure you want to permanently delete this issue and ALL its comments? This cannot be undone.');">
+                            <form action="" method="POST" style="display:inline-block;" onsubmit="return confirm('Are you sure you want to permanently delete this issue and ALL its comments? This cannot be undone.');">
                                 <input type="hidden" name="id" value="<?php echo $issue['id']; ?>">
                                 <button type="submit" name="deleteIssue" class="btn btn-danger btn-sm" title="Delete Issue">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg> Delete

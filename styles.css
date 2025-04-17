@@ -138,3 +138,51 @@ td, th {
         max-width: 150px;
     }
 }
+
+ /* --- Base Table Cell Alignment --- */
+ .table th, .table td {
+    vertical-align: middle !important; /* Use !important to ensure override if necessary */
+}
+
+/* --- Button Margins --- */
+.table td .btn,
+.table td form { /* Apply consistent margin to forms containing buttons too */
+   margin-right: 5px; /* Spacing between buttons */
+   margin-bottom: 0; /* Remove bottom margin */
+   margin-top: 0; /* Remove top margin */
+}
+.table td .btn:last-child,
+.table td form:last-child .btn {
+    margin-right: 0; /* No right margin for the last button/form in a cell */
+}
+
+/* --- Closed Issue Styling --- */
+tr.issue-closed td {
+    background-color: #f8f9fa !important;
+    color: #6c757d;
+    text-decoration: line-through;
+}
+
+/* --- Cell Specific Styling --- */
+.action-cell {
+   min-width: 140px; /* Adjust if needed, maybe smaller now */
+   /* text-align: left; // Let flexbox handle alignment */
+}
+.view-cell {
+   min-width: 90px; /* Adjust if needed */
+   /* text-align: center; // Let flexbox handle alignment */
+}
+
+/* --- Header Button Alignment Fix (if needed) --- */
+.header-actions > * { /* Target direct children of the button container */
+    vertical-align: middle; /* Attempt baseline alignment */
+}
+.header-actions .btn {
+    margin-bottom: 0; /* Prevent extra margin affecting alignment */
+}
+
+/* --- SVG Alignment in Buttons --- */
+.btn svg {
+    vertical-align: text-bottom; /* Helps align icon with text baseline */
+    margin-right: 0.25em; /* Add a small space between icon and text */
+}
